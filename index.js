@@ -6,12 +6,12 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Replace this with your actual domain
+// Replace with your actual domain
 const WEBHOOK_URL = `https://medial-agent.onrender.com`;
 
 // === Telegram Bot Setup with Webhooks ===
 const token = process.env.BOT_API;
-const bot = new TelegramBot(token);
+const bot = new TelegramBot(token, { webHook: { port: PORT } }); // 👈 critical fix
 
 // Parse application/json
 app.use(bodyParser.json());
@@ -52,7 +52,11 @@ app.post('/relay-data', async (req, res) => {
       return res.status(400).send('❌ chat_id and text are required');
     }
 
-    await bot.sendMessage(chat_id, text);
+    await bot.sendMessage(chat_id, text).catch((err) => {
+      console.error('Telegram error:', err.response?.body || err.message);
+      throw err;
+    });
+
     res.send('✅ Message sent');
 
   } catch (error) {
