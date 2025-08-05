@@ -24,7 +24,7 @@ app.post(`/bot${TOKEN}`, (req, res) => {
 // 2️⃣ Handle /start command — send form link
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const formLink = `<a href="https://forms.gle/6LNoSF4HDLBEcJRq6">📋 Fill out this form</a>`;
+  const formLink = `<a href="https://forms.gle/6LNoSF4HDLBEcJRq6">📋 Fill out this form and enter chat id as ${chatId}</a>`;
   bot.sendMessage(chatId, formLink, { parse_mode: 'HTML' });
 });
 
