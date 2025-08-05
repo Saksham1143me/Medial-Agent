@@ -17,8 +17,10 @@ bot.onText(/\/start/, (msg) => {
 });
 
 // When a user sends any regular text message
+let latestChatId=null
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
+    latestChatId=chatId
     // If the message is not /start, echo it back
     if (msg.text !== '/start') {
         bot.sendMessage(chatId, `You said: "${msg.text}"`);
@@ -54,6 +56,6 @@ app.get('/', (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-    console.log(`Listening for data on http://localhost:${PORT}/relay-data`);
+    console.log(`Server is running`);
+    console.log(`Listening for data' on port ${PORT}`);
 });
