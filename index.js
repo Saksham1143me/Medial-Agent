@@ -4,8 +4,7 @@ require('dotenv').config();
 
 const app = express();
 const token = process.env.BOT_API;
-const bot = new TelegramBot(token);
-
+const bot = new TelegramBot(token, { webHook: { port: false } });
 // Webhook setup
 const WEBHOOK_URL = 'https://medial-agent.onrender.com';
 bot.setWebHook(`${WEBHOOK_URL}/bot${token}`);
@@ -39,11 +38,12 @@ bot.onText(/\/start/, (msg) => {
 
 // 3. Handle callback when user clicks "✅ Sent"
 bot.on('callback_query', async (callbackQuery) => {
+    console.log('Button clicked:', callbackQuery);
     const chatId = callbackQuery.message.chat.id;
 
     if (callbackQuery.data === 'form_submitted') {
         confirmedChatId = chatId;
-
+console.log('Confirmed chat:', confirmedChatId);
         await bot.sendMessage(chatId, '✅ Thank you! I will send you updates as soon as they are available.');
         await bot.answerCallbackQuery(callbackQuery.id);
     }
