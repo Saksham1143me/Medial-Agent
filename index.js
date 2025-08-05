@@ -1,99 +1,51 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
-const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Telegram bot in webhook mode
-const bot = new TelegramBot(process.env.BOT_API, { webHook: { port: false } });
-const WEBHOOK_URL = 'https://medial-agent.onrender.com';
-bot.setWebHook(`${WEBHOOK_URL}/bot${process.env.BOT_API}`);
+const TOKEN = process.env.BOT_API;
+const SERVER_URL = 'https://medial-agent.onrender.com'; // ← Replace if hosted elsewhere
 
-// MongoDB connection
-const client = new MongoClient(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-});
+// Setup bot with webhook
+const bot = new TelegramBot(TOKEN, { webHook: { port: false } }); // port false = let Express handle it
 
-let db;
+// Set webhook on Telegram servers
+bot.setWebHook(`${SERVER_URL}/bot${TOKEN}`);
 
-// Telegram webhook route
-app.post(`/bot${process.env.BOT_API}`, (req, res) => {
+// 1️⃣ Telegram will send updates here
+app.post(`/bot${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// /start command → send Google Form link and store chat ID
-bot.onText(/\/start/, async (msg) => {
+// 2️⃣ Handle /start command — send form link
+bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-
-  await db.collection('singleton').updateOne(
-    { key: 'chat' },
-    { $set: { chatId } },
-    { upsert: true }
-  );
-
-  const formLink = 'https://forms.gle/6LNoSF4HDLBEcJRq6';
-  bot.sendMessage(chatId, `📝 Please fill out the form:\n<a href="${formLink}">${formLink}</a>`, {
-    parse_mode: 'HTML'
-  });
+  const formLink = `<a href="https://forms.gle/6LNoSF4HDLBEcJRq6">📋 Fill out this form</a>`;
+  bot.sendMessage(chatId, formLink, { parse_mode: 'HTML' });
 });
 
-// /form command → show last received relay data
-bot.onText(/\/form/, async (msg) => {
-  const record = await db.collection('singleton').findOne({ key: 'relay' });
-  const chatId = msg.chat.id;
+// 3️⃣ Your form hits this route: { chat_id, text }
+app.post('/relay-data', (req, res) => {
+  const { chat_id, text } = req.body;
 
-  if (record?.data) {
-    bot.sendMessage(chatId, `📨 Latest Form Data:\n\n<pre>${JSON.stringify(record.data, null, 2)}</pre>`, {
-      parse_mode: 'HTML'
+  if (!chat_id || !text) {
+    return res.status(400).send('❌ chat_id and text required');
+  }
+
+  bot.sendMessage(chat_id, text)
+    .then(() => res.send('✅ Message sent to Telegram'))
+    .catch(err => {
+      console.error('Telegram error:', err.message);
+      res.status(500).send('❌ Failed to send');
     });
-  } else {
-    bot.sendMessage(chatId, '❌ No form data received yet.');
-  }
 });
 
-// /relay endpoint → receive data and send to user
-app.post('/relay', async (req, res) => {
-  const body = req.body;
-
-  const record = await db.collection('singleton').findOne({ key: 'chat' });
-  if (!record?.chatId) {
-    return res.status(404).send('❌ No chat ID found');
-  }
-
-  // Save the relay data
-  await db.collection('singleton').updateOne(
-    { key: 'relay' },
-    { $set: { data: body } },
-    { upsert: true }
-  );
-
-  await bot.sendMessage(record.chatId, `✅ New form submitted:\n\n<pre>${JSON.stringify(body, null, 2)}</pre>`, {
-    parse_mode: 'HTML'
-  });
-
-  res.send('✅ Relay sent to Telegram');
+// 4️⃣ Server listener
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
-
-// Start app after DB connects
-const start = async () => {
-  try {
-    await client.connect();
-    db = client.db('telegramBot');
-    console.log('✅ MongoDB connected');
-
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error('❌ DB Connection Failed:', err);
-    process.exit(1);
-  }
-};
-
-start();
