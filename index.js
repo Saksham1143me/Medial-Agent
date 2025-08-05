@@ -38,22 +38,14 @@ const PORT = process.env.PORT || 3000;
 // Define a POST endpoint to receive data from Relay AI
 // You can choose any path you like, e.g., '/webhook', '/relay-data', etc.
 app.post('/relay-data', (req, res) => {
-    console.log('Received data from Relay AI:');
-    console.log(req.body); // The data sent by Relay AI will be in req.body
+    if (!latestChatId) {
+        return res.status(400).json({ message: 'No user has interacted with the bot yet.' });
+    }
 
-    // You can add your backend logic here to process the data:
-    // - Save to a database
-    // - Trigger other actions
-    // - Perform calculations
-    // etc.
-
-    // Send a response back to Relay AI
-    // It's good practice to send a status code and a message to acknowledge receipt
-    res.status(200).json({
-        message: 'Data received successfully!',
-        receivedData: req.body // Optionally send back the received data for confirmation
-    });
+    bot.sendMessage(latestChatId, `Data: ${JSON.stringify(req.body)}`);
+    res.status(200).json({ message: 'Sent to Telegram' });
 });
+
 
 // Basic GET route for testing if the server is running
 app.get('/', (req, res) => {
