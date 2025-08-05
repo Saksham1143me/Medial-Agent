@@ -8,8 +8,10 @@ console.log(token);
 const bot = new TelegramBot(token, {polling: true});
 
 // When a user sends the /start command
+let latestChatId=null
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
+    latestChatId=chatId;
     const message = `Hello! I am a medical bot. I will assist you. To fill this form <a href="https://forms.gle/6LNoSF4HDLBEcJRq6">click here</a>.`;
 
     // Send the message with HTML formatting
@@ -17,15 +19,7 @@ bot.onText(/\/start/, (msg) => {
 });
 
 // When a user sends any regular text message
-let latestChatId=null
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    latestChatId=chatId
-    // If the message is not /start, echo it back
-    if (msg.text !== '/start') {
-        bot.sendMessage(chatId, `You said: "${msg.text}"`);
-    }
-});
+
 // server.js
 const app = express();
 
