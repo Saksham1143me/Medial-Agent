@@ -2,54 +2,75 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-const token = process.env.BOT_API;
 const app = express();
+const token = process.env.BOT_API;
+
 const bot = new TelegramBot(token);
 
-// Set this to your public deployed domain
-const WEBHOOK_URL = 'https://medial-agent.onrender.com'; // ⬅️ CHANGE THIS to your real domain
+// Set this to your public Render URL
+const WEBHOOK_URL = 'https://medial-agent.onrender.com';
 
 // Set webhook
 bot.setWebHook(`${WEBHOOK_URL}/bot${token}`);
 
-let latestChatId = null;
-
-// Parse Telegram JSON updates
+// Middleware to parse incoming JSON
 app.use(express.json());
 
-// Route that Telegram will call with new updates
+// Track last user who messaged the bot
+let lastChatId = null;
+
+// Handle incoming webhook events
 app.post(`/bot${token}`, (req, res) => {
-    bot.processUpdate(req.body); // Pass update to bot
+    bot.processUpdate(req.body);
     res.sendStatus(200);
 });
 
-// Handle /start command
-bot.onText(/\/start/, (msg) => {
+// Handle /start and any other message
+bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    latestChatId = chatId;
+    lastChatId = chatId;
 
-    const message = `Hello! I am a medical bot. I will assist you. To fill this form <a href="https://forms.gle/6LNoSF4HDLBEcJRq6">click here</a>.`;
-
-    bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    const welcome = `Hello! I am a medical bot. I will assist you.\nTo fill this form <a href="https://forms.gle/6LNoSF4HDLBEcJRq6">click here</a>.`;
+    bot.sendMessage(chatId, welcome, { parse_mode: 'HTML' });
 });
 
-// Your custom POST endpoint to receive data from other services
-app.post('/relay-data', (req, res) => {
-    if (!latestChatId) {
+// Relay external POST data to the Telegram chat
+app.post('/relay-data', async (req, res) => {
+    if (!lastChatId) {
         return res.status(400).json({ message: 'No user has interacted with the bot yet.' });
     }
 
-    bot.sendMessage(latestChatId, `Data: ${JSON.stringify(req.body)}`);
-    res.status(200).json({ message: 'Sent to Telegram' });
+    try {
+        // Send loading message
+        const loadingMsg = await bot.sendMessage(lastChatId, '⏳ Loading data...');
+
+        // Optionally simulate delay:
+        // await new Promise(r => setTimeout(r, 1000));
+
+        // Format data
+        const formattedData = `<b>✅ Data Received:</b>\n<pre>${JSON.stringify(req.body, null, 2)}</pre>`;
+
+        // Replace loading with actual data
+        await bot.editMessageText(formattedData, {
+            chat_id: lastChatId,
+            message_id: loadingMsg.message_id,
+            parse_mode: 'HTML'
+        });
+
+        res.status(200).json({ message: 'Data relayed to Telegram.' });
+    } catch (error) {
+        console.error('Telegram send error:', error);
+        res.status(500).json({ message: 'Failed to send data to Telegram.' });
+    }
 });
 
-// Optional GET route for health check
+// Health check route
 app.get('/', (req, res) => {
-    res.send('Relay AI Bot is running. Telegram is using webhooks.');
+    res.send('Medical Bot is running and using webhooks!');
 });
 
-// Start the server
+// Start Express server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Bot server running on port ${PORT}`);
 });
