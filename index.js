@@ -7,97 +7,93 @@ require('dotenv').config();
 const app = express();
 app.use(bodyParser.json());
 
-// Your bot token and Mongo URI from environment
-const token = process.env.BOT_API;
-const mongoUri = process.env.MONGO_URI;
-
-// Initialize Telegram bot with webhook mode
-const bot = new TelegramBot(token, { webHook: { port: false } });
-
-// Set your webhook URL (Render deployed URL)
+// Telegram bot in webhook mode
+const bot = new TelegramBot(process.env.BOT_API, { webHook: { port: false } });
 const WEBHOOK_URL = 'https://medial-agent.onrender.com';
-bot.setWebHook(`${WEBHOOK_URL}/bot${token}`);
+bot.setWebHook(`${WEBHOOK_URL}/bot${process.env.BOT_API}`);
 
-// Connect to MongoDB
-const client = new MongoClient(mongoUri);
-let db;
-
-client.connect().then(() => {
-  db = client.db('telegramBot');
-  console.log('✅ MongoDB connected');
+// MongoDB connection
+const client = new MongoClient(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
 });
 
-// Webhook endpoint for Telegram
-app.post(`/bot${token}`, (req, res) => {
+let db;
+
+// Telegram webhook route
+app.post(`/bot${process.env.BOT_API}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// Google Form link
-const GOOGLE_FORM_URL = 'https://forms.gle/6LNoSF4HDLBEcJRq6';
-
-// /start command: send form link and store chatId
+// /start command → send Google Form link and store chat ID
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
-  // Store or update the chatId in Mongo (for single-user mode)
   await db.collection('singleton').updateOne(
     { key: 'chat' },
     { $set: { chatId } },
     { upsert: true }
   );
 
-  const message = `🩺 Hello! I am your medical bot assistant.\n\n👉 Please fill this form: <a href="${GOOGLE_FORM_URL}">Form Link</a>\n\nOnce done, send /form to view your results.`;
-
-  bot.sendMessage(chatId, message, {
+  const formLink = 'https://forms.gle/6LNoSF4HDLBEcJRq6';
+  bot.sendMessage(chatId, `📝 Please fill out the form:\n<a href="${formLink}">${formLink}</a>`, {
     parse_mode: 'HTML'
   });
 });
 
-// /form command: show latest submitted data
+// /form command → show last received relay data
 bot.onText(/\/form/, async (msg) => {
+  const record = await db.collection('singleton').findOne({ key: 'relay' });
   const chatId = msg.chat.id;
 
-  const record = await db.collection('singleton').findOne({ key: 'relayData' });
-
-  if (!record || !record.data) {
-    return bot.sendMessage(chatId, '⚠️ No form data received yet.');
+  if (record?.data) {
+    bot.sendMessage(chatId, `📨 Latest Form Data:\n\n<pre>${JSON.stringify(record.data, null, 2)}</pre>`, {
+      parse_mode: 'HTML'
+    });
+  } else {
+    bot.sendMessage(chatId, '❌ No form data received yet.');
   }
-
-  const formatted = `<b>✅ Latest Form Data:</b>\n<pre>${JSON.stringify(record.data, null, 2)}</pre>`;
-
-  bot.sendMessage(chatId, formatted, { parse_mode: 'HTML' });
 });
 
-// External webhook to receive data from Google Form (via Apps Script or API)
+// /relay endpoint → receive data and send to user
 app.post('/relay', async (req, res) => {
-  const data = req.body;
+  const body = req.body;
 
-  // Store latest data in Mongo
-  await db.collection('singleton').updateOne(
-    { key: 'relayData' },
-    { $set: { data } },
-    { upsert: true }
-  );
-
-  const chatRecord = await db.collection('singleton').findOne({ key: 'chat' });
-
-  if (!chatRecord || !chatRecord.chatId) {
+  const record = await db.collection('singleton').findOne({ key: 'chat' });
+  if (!record?.chatId) {
     return res.status(404).send('❌ No chat ID found');
   }
 
-  await bot.sendMessage(chatRecord.chatId, `✅ Form data received! Use /form to view it.`);
+  // Save the relay data
+  await db.collection('singleton').updateOne(
+    { key: 'relay' },
+    { $set: { data: body } },
+    { upsert: true }
+  );
 
-  res.send('✅ Data stored and user notified.');
+  await bot.sendMessage(record.chatId, `✅ New form submitted:\n\n<pre>${JSON.stringify(body, null, 2)}</pre>`, {
+    parse_mode: 'HTML'
+  });
+
+  res.send('✅ Relay sent to Telegram');
 });
 
-// Health check
-app.get('/', (req, res) => {
-  res.send('🤖 Telegram bot is running via webhook.');
-});
+// Start app after DB connects
+const start = async () => {
+  try {
+    await client.connect();
+    db = client.db('telegramBot');
+    console.log('✅ MongoDB connected');
 
-// Start Express server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('❌ DB Connection Failed:', err);
+    process.exit(1);
+  }
+};
+
+start();
