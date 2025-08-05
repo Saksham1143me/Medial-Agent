@@ -4,72 +4,79 @@ require('dotenv').config();
 
 const app = express();
 const token = process.env.BOT_API;
-
 const bot = new TelegramBot(token);
 
-// Set this to your public Render URL
+// Webhook setup
 const WEBHOOK_URL = 'https://medial-agent.onrender.com';
-
-// Set webhook
 bot.setWebHook(`${WEBHOOK_URL}/bot${token}`);
 
-// Middleware to parse incoming JSON
 app.use(express.json());
 
-// Track last user who messaged the bot
-let lastChatId = null;
+// ✅ Store confirmed user
+let confirmedChatId = null;
 
-// Handle incoming webhook events
+// 1. Handle Telegram webhook
 app.post(`/bot${token}`, (req, res) => {
     bot.processUpdate(req.body);
     res.sendStatus(200);
 });
 
-// Handle /start and any other message
-bot.on('message', (msg) => {
+// 2. When user sends /start — send message + button
+bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    lastChatId = chatId;
 
-    const welcome = `Hello! I am a medical bot. I will assist you.\nTo fill this form <a href="https://forms.gle/6LNoSF4HDLBEcJRq6">click here</a>.`;
-    bot.sendMessage(chatId, welcome, { parse_mode: 'HTML' });
+    const message = `🩺 Hello! I am your medical bot assistant.\n\n👉 Please fill this form: <a href="https://forms.gle/6LNoSF4HDLBEcJRq6">Form Link</a>\n\nOnce done, click the button below.`;
+    
+    bot.sendMessage(chatId, message, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '✅ Sent', callback_data: 'form_submitted' }]
+            ]
+        }
+    });
 });
 
-// Relay external POST data to the Telegram chat
+// 3. Handle callback when user clicks "✅ Sent"
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+
+    if (callbackQuery.data === 'form_submitted') {
+        confirmedChatId = chatId;
+
+        await bot.sendMessage(chatId, '✅ Thank you! I will send you updates as soon as they are available.');
+        await bot.answerCallbackQuery(callbackQuery.id);
+    }
+});
+
+// 4. External endpoint that sends data to user
 app.post('/relay-data', async (req, res) => {
-    if (!lastChatId) {
-        return res.status(400).json({ message: 'No user has interacted with the bot yet.' });
+    if (!confirmedChatId) {
+        return res.status(400).json({ message: 'No user has confirmed form submission.' });
     }
 
     try {
-        // Send loading message
-        const loadingMsg = await bot.sendMessage(lastChatId, '⏳ Loading data...');
+        const loadingMsg = await bot.sendMessage(confirmedChatId, '⏳ Loading data...');
+        const formatted = `<b>✅ Data Received:</b>\n<pre>${JSON.stringify(req.body, null, 2)}</pre>`;
 
-        // Optionally simulate delay:
-        // await new Promise(r => setTimeout(r, 1000));
-
-        // Format data
-        const formattedData = `<b>✅ Data Received:</b>\n<pre>${JSON.stringify(req.body, null, 2)}</pre>`;
-
-        // Replace loading with actual data
-        await bot.editMessageText(formattedData, {
-            chat_id: lastChatId,
+        await bot.editMessageText(formatted, {
+            chat_id: confirmedChatId,
             message_id: loadingMsg.message_id,
             parse_mode: 'HTML'
         });
 
-        res.status(200).json({ message: 'Data relayed to Telegram.' });
-    } catch (error) {
-        console.error('Telegram send error:', error);
+        res.status(200).json({ message: 'Data sent to user.' });
+    } catch (err) {
+        console.error('Telegram send error:', err);
         res.status(500).json({ message: 'Failed to send data to Telegram.' });
     }
 });
 
-// Health check route
+// 5. Health check
 app.get('/', (req, res) => {
-    res.send('Medical Bot is running and using webhooks!');
+    res.send('Medical bot running...');
 });
 
-// Start Express server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Bot server running on port ${PORT}`);
